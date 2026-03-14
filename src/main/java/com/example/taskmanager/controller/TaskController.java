@@ -1,0 +1,56 @@
+package com.example.taskmanager.controller;
+
+import com.example.taskmanager.dto.ApiResponse;
+import com.example.taskmanager.dto.TaskDtoGroup;
+import com.example.taskmanager.service.TaskService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/tasks")
+@RequiredArgsConstructor
+@Tag(name = "Tasks", description = "Task management API")
+public class TaskController {
+
+    private final TaskService taskService;
+
+    @Operation(summary = "Get all tasks with optional filters")
+    @GetMapping
+    public ApiResponse<List<TaskDtoGroup.Response>> getAllTasks(
+            @Parameter(description = "Filter by category ID") @RequestParam(required = false) Long categoryId,
+            @Parameter(description = "Filter by user ID") @RequestParam(required = false) Long userId
+    ) {
+        return ApiResponse.success(taskService.getAllTasks(categoryId, userId));
+    }
+
+    @Operation(summary = "Get task by ID")
+    @GetMapping("/{id}")
+    public ApiResponse<TaskDtoGroup.Response> getTaskById(@PathVariable Long id) {
+        return ApiResponse.success(taskService.getTaskById(id));
+    }
+
+    @Operation(summary = "Create task")
+    @PostMapping
+    public ApiResponse<TaskDtoGroup.Response> createTask(@Valid @RequestBody TaskDtoGroup.Create dto) {
+        return ApiResponse.success(taskService.createTask(dto));
+    }
+
+    @Operation(summary = "Update task")
+    @PutMapping("/{id}")
+    public ApiResponse<TaskDtoGroup.Response> updateTask(@PathVariable Long id, @Valid @RequestBody TaskDtoGroup.Update dto) {
+        return ApiResponse.success(taskService.updateTask(id, dto));
+    }
+
+    @Operation(summary = "Delete task")
+    @DeleteMapping("/{id}")
+    public ApiResponse<Void> deleteTask(@PathVariable Long id) {
+        taskService.deleteTask(id);
+        return ApiResponse.success(null);
+    }
+}
