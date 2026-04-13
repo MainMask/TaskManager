@@ -16,7 +16,7 @@ public final class TaskDtoGroup {
             CategoryDtoGroup.Response category,
             LocalDateTime createdAt,
             LocalDateTime updatedAt
-    ) {}
+    ) implements java.io.Serializable {}
 
     public record Create(
             @NotBlank(message = "Title cannot be blank") String title,

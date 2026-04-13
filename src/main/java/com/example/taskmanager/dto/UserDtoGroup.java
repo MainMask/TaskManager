@@ -11,7 +11,7 @@ public final class UserDtoGroup {
             String name,
             String email,
             LocalDateTime createdAt
-    ) {}
+    ) implements java.io.Serializable {}
 
     public record Create(
             @NotBlank(message = "Name cannot be blank") String name,
