@@ -6,7 +6,8 @@ import com.example.taskmanager.exception.ResourceNotFoundException;
 import com.example.taskmanager.mapper.CategoryMapper;
 import com.example.taskmanager.model.Category;
 import com.example.taskmanager.repository.CategoryRepository;
-import jakarta.annotation.PostConstruct;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
@@ -24,7 +25,7 @@ public class CategoryService {
     private final CategoryRepository categoryRepository;
     private final CategoryMapper categoryMapper;
 
-    @PostConstruct
+    @EventListener(ApplicationReadyEvent.class)
     public void initDefaultCategories() {
         log.info("Initializing default categories");
         List<String> defaults = List.of("Home", "Work", "Education", "Health", "Other");
