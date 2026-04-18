@@ -1,69 +1,113 @@
-# Task Manager API (MVP)
+# Task Manager — Microservices
 
-RESTful API для управления задачами, пользователями и категориями. Проект разработан на базе **Spring Boot 3** и **Java 25**, использует базу данных **PostgreSQL** в Docker и документируется через **Swagger (Springdoc OpenAPI)**.
-
-Данный проект предоставляет Backend-составляющую (без UI и авторизации на текущем этапе) для будущего функционала "Менеджера задач".
+REST API для управления задачами, пользователями и категориями. Архитектура разбита на два независимых микросервиса, связанных через Apache Kafka.
 
 ---
 
-## 🛠 Технологический стек
+## Технологический стек
 
-*   **Java 25**
-*   **Spring Boot 3.x**
-    *   Spring Web (REST API)
-    *   Spring Data JPA (БД)
-    *   Spring Validation (Проверка данных)
-    *   Spring Data Redis (Кэширование)
-*   **PostgreSQL 16** (Docker)
-*   **Redis 7** (Docker)
-*   **Liquibase** (Миграции схемы базы данных)
-*   **MapStruct** (Автоматический маппинг Entity <-> DTO)
-*   **Lombok + SLF4J** (Генерация кода и логирование событий)
-*   **Maven** (Сборка)
-*   **Springdoc OpenAPI** (Swagger UI)
+| | |
+|---|---|
+| **Java 25 / Spring Boot 4.0.3** | Основной фреймворк |
+| **PostgreSQL 16** | Два независимых экземпляра БД (task + notification) |
+| **Redis 7** | Кэширование (с fallback на in-memory при отключении) |
+| **Apache Kafka 7.7 (KRaft)** | Асинхронный обмен событиями между сервисами |
+| **Liquibase** | Версионирование схемы БД в обоих сервисах |
+| **MapStruct** | Автоматический маппинг Entity ↔ DTO |
+| **Lombok** | Снижение шаблонного кода |
+| **Springdoc OpenAPI** | Swagger UI |
+| **Testcontainers** | Интеграционные тесты с реальными контейнерами |
 
-## 🚀 Быстрый старт
+---
 
-### Требования к окружению
-Перед запуском убедитесь, что на вашей машине установлены:
-- **Docker** и **Docker Compose**
-- **Java 25** (JDK)
-- **Git** (опционально)
+## Архитектура
 
-### 1. Запуск инфраструктуры (БД и Кэш)
-Проект использует PostgreSQL и Redis, которые автоматически разворачиваются через Docker. 
-
-1. Откройте терминал.
-2. Перейдите в корневую директорию проекта (где находится `docker-compose.yml`).
-3. Запустите контейнеры в фоновом режиме:
-   ```bash
-   docker-compose up -d
-   ```
-   *Docker создаст БД `taskmanager` с пользователем `admin`/`admin` (на порту `5432`) и запустит Redis-кэш (на порту `6379`). Миграции таблиц Liquibase накатит автоматически при запуске Spring Boot.*
-
-### 2. Запуск приложения Spring Boot
-Вы можете запустить приложение, используя встроенный Maven Wrapper (вам не нужно устанавливать Maven глобально).
-
-Выполните команду в корневой папке проекта:
-```bash
-./mvnw spring-boot:run
+```
+┌──────────────────────────────────────────────────────────────┐
+│                        Docker Compose                         │
+│                                                               │
+│  ┌──────────────────┐       Kafka        ┌─────────────────┐ │
+│  │   task-service   │ ─── task-events ──▶│notification-    │ │
+│  │   :8080          │                    │service :8081    │ │
+│  │                  │                    │                 │ │
+│  │  PostgreSQL :5432│                    │PostgreSQL :5433 │ │
+│  │  Redis :6379     │                    │                 │ │
+│  └──────────────────┘                    └─────────────────┘ │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-Приложение запустится на стандартном порту **`8080`**. Вы увидите в консоли логи Spring, и сообщение вида `Started TaskmanagerApplication in ... seconds`.
+**task-service** — принимает REST-запросы, управляет задачами/пользователями/категориями, публикует события в Kafka.
 
-### 3. Тестирование API (Swagger UI)
-Документация и удобный интерфейс для тестирования эндпоинтов доступны прямо в браузере.
-
-Откройте ссылку: **[http://localhost:8080/swagger-ui.html](http://localhost:8080/swagger-ui.html)**
+**notification-service** — слушает топик `task-events`, сохраняет записи о событиях в отдельную БД.
 
 ---
 
-## 📚 Структура и возможности API
+## Быстрый старт
 
-API разделено на три основных блока ресурсов: **Users**, **Categories** и **Tasks**. 
-В проекте реализован архитектурный паттерн DTO и глобальный обработчик ошибок (`GlobalExceptionHandler`).
+### Требования
 
-Успешный ответ стандартизован и возвращает JSON вида:
+- **Docker** и **Docker Compose**
+- **Java 25** (JDK)
+- **Maven** (или используйте `./mvnw`)
+
+### 1. Запуск инфраструктуры
+
+```bash
+docker-compose up -d
+```
+
+Запустятся четыре контейнера:
+
+| Контейнер | Порт | Назначение |
+|---|---|---|
+| `taskmanager-postgres` | 5432 | БД для task-service |
+| `notification-postgres` | 5433 | БД для notification-service |
+| `taskmanager-redis` | 6379 | Redis-кэш |
+| `taskmanager-kafka` | 9092 | Kafka (KRaft, без Zookeeper) |
+
+Дождаться состояния `healthy`:
+```bash
+docker-compose ps
+```
+
+### 2. Сборка проекта
+
+```bash
+mvn clean package -DskipTests
+```
+
+### 3. Запуск task-service (порт 8080)
+
+```bash
+java -jar task-service/target/task-service-0.0.1-SNAPSHOT.jar
+```
+
+Или через Maven:
+```bash
+mvn spring-boot:run -pl task-service
+```
+
+Liquibase автоматически создаст таблицы и наполнит базу стартовыми данными (5 категорий).
+
+### 4. Запуск notification-service (порт 8081)
+
+В **отдельном** терминале:
+```bash
+java -jar notification-service/target/notification-service-0.0.1-SNAPSHOT.jar
+```
+
+Или:
+```bash
+mvn spring-boot:run -pl notification-service
+```
+
+---
+
+## API — task-service
+
+Swagger UI: **http://localhost:8080/swagger-ui.html**
+
+Все ответы обёрнуты в единый формат:
 ```json
 {
   "data": { ... },
@@ -71,72 +115,227 @@ API разделено на три основных блока ресурсов:
 }
 ```
 
-В случае возникновения ошибок (например, 404 Not Found или 400 Validation Error) возвращается структурированный `ErrorResponse`:
+Ошибки:
 ```json
 {
   "code": "RESOURCE_NOT_FOUND",
   "message": "Task not found with id: 999",
   "status": 404,
-  "timestamp": "2026-03-28T10:00:00Z"
+  "timestamp": "2026-04-18T10:00:00Z"
 }
 ```
 
-> ⚡ **Примечание по производительности:** Списки ресурсов и отдельные элементы кэшируются через **Redis**, что многократно ускоряет отдачу данных при повторных запросах. При создании, обновлении или удалении сущностей кэш автоматически инвалидируется.
-> 
-> **Адреса (URL) с включенным кэшированием (для тестирования в Postman):**
-> *   **Задачи:**
->     *   `http://localhost:8080/api/tasks`
->     *   `http://localhost:8080/api/tasks/{id}` (замените `{id}` на ID задачи, например, `1`)
-> *   **Категории:**
->     *   `http://localhost:8080/api/categories`
->     *   `http://localhost:8080/api/categories/{id}`
-> *   **Пользователи:**
->     *   `http://localhost:8080/api/users`
->     *   `http://localhost:8080/api/users/{id}`
+### Пользователи — `/api/users`
 
-### Пользователи (`/api/users`)
-- `GET /api/users` - Получить список всех пользователей.
-- `GET /api/users/{id}` - Получить пользователя по ID.
-- `POST /api/users` - Создать нового пользователя (требуется `name` и валидный `email`).
-- `PUT /api/users/{id}` - Обновить данные пользователя.
-- `DELETE /api/users/{id}` - Удалить пользователя.
+```bash
+curl -X POST http://localhost:8080/api/users \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Alice", "email": "alice@example.com"}'
+```
 
-### Категории (`/api/categories`)
-*Примечание: При запуске приложения базовые категории (Home, Work, Education, Health, Other) создадутся автоматически.*
-- `GET /api/categories` - Получить все категории.
-- `GET /api/categories/{id}` - Получить категорию по ID.
-- `POST /api/categories` - Создать новую категорию.
-- `PUT /api/categories/{id}` - Переименовать категорию.
-- `DELETE /api/categories/{id}` - Удалить категорию.
+| Метод | URL | Описание |
+|---|---|---|
+| GET | `/api/users` | Список всех пользователей |
+| GET | `/api/users/{id}` | Пользователь по ID |
+| POST | `/api/users` | Создать пользователя |
+| PUT | `/api/users/{id}` | Обновить данные |
+| DELETE | `/api/users/{id}` | Удалить |
 
-### Задачи (`/api/tasks`)
-- `GET /api/tasks` - Получить список задач.
-  - Поддерживает фильтрацию (Query-параметры), параметры можно комбинировать: 
-  - `?categoryId=1` — Задачи только из категории с ID 1.
-  - `?userId=1` — Задачи конкретного пользователя.
-  - `?status=TODO` — Задачи в конкретном статусе (`TODO`, `IN_PROGRESS`, `DONE`).
-- `GET /api/tasks/{id}` - Получить задачу по ID.
-- `POST /api/tasks` - Создать задачу. 
-  - *Пример тела запроса (Payload)*:
-    ```json
-    {
-      "title": "Сделать домашнее задание",
-      "description": "Математика и физика",
-      "status": "TODO",
-      "userId": 1,
-      "categoryId": 3
-    }
-    ```
-- `PUT /api/tasks/{id}` - Обновить задачу (например, поменять статус на `IN_PROGRESS` или `DONE`).
-- `DELETE /api/tasks/{id}` - Удалить задачу.
+### Категории — `/api/categories`
+
+При первом запуске автоматически создаются: Home, Work, Education, Health, Other.
+
+| Метод | URL | Описание |
+|---|---|---|
+| GET | `/api/categories` | Список всех категорий |
+| GET | `/api/categories/{id}` | Категория по ID |
+| POST | `/api/categories` | Создать |
+| PUT | `/api/categories/{id}` | Переименовать |
+| DELETE | `/api/categories/{id}` | Удалить |
+
+### Задачи — `/api/tasks`
+
+```bash
+# Создать задачу
+curl -X POST http://localhost:8080/api/tasks \
+  -H "Content-Type: application/json" \
+  -d '{"title": "Купить молоко", "description": "В магазине", "status": "TODO", "userId": 1, "categoryId": 1}'
+
+# Получить список с пагинацией и фильтром
+curl "http://localhost:8080/api/tasks?page=0&size=5&sort=createdAt,desc&status=TODO"
+```
+
+| Метод | URL | Описание |
+|---|---|---|
+| GET | `/api/tasks` | Список задач с пагинацией и фильтрами |
+| GET | `/api/tasks/{id}` | Задача по ID |
+| POST | `/api/tasks` | Создать задачу |
+| PUT | `/api/tasks/{id}` | Обновить задачу |
+| DELETE | `/api/tasks/{id}` | Удалить задачу |
+
+**Query-параметры для `GET /api/tasks`:**
+
+| Параметр | Тип | Пример | Описание |
+|---|---|---|---|
+| `page` | int | `0` | Номер страницы (с нуля) |
+| `size` | int | `10` | Размер страницы (по умолчанию 10, макс 100) |
+| `sort` | string | `createdAt,desc` | Поле и направление сортировки |
+| `status` | enum | `TODO` | Фильтр: `TODO`, `IN_PROGRESS`, `DONE` |
+| `from` | ISO datetime | `2026-01-01T00:00:00` | Нижняя граница даты создания |
+| `to` | ISO datetime | `2026-12-31T23:59:59` | Верхняя граница даты создания |
+
+Ответ с метаданными пагинации:
+```json
+{
+  "data": {
+    "content": [ ... ],
+    "totalElements": 42,
+    "totalPages": 5,
+    "number": 0,
+    "size": 10
+  },
+  "message": "Success"
+}
+```
 
 ---
 
-## 🛑 Остановка проекта
+## Kafka — события задач
 
-1. **Остановка Spring Boot**: Нажмите `Ctrl + C` в терминале, где запущено приложение.
-2. **Остановка базы данных**: В корне проекта выполните:
-   ```bash
-   docker-compose down
-   ```
-   *(Данные базы сохранятся в локальном volume (томе) `postgres-data`)*. Если вы хотите полностью удалить базу данных и начать с чистого листа, выполните `docker-compose down -v`.
+После каждой операции с задачей task-service публикует событие в топик **`task-events`**.
+
+| Операция | `eventType` |
+|---|---|
+| Создание | `TASK_CREATED` |
+| Обновление | `TASK_UPDATED` |
+| Изменение статуса | `TASK_STATUS_CHANGED` |
+| Удаление | `TASK_DELETED` |
+
+notification-service принимает эти события и сохраняет их в таблицу `notification_records` базы `notificationdb`.
+
+Посмотреть сохранённые события:
+```bash
+docker exec -it notification-postgres psql -U admin -d notificationdb \
+  -c "SELECT id, task_id, event_type, dispatch_strategy, processed_at FROM notification_records ORDER BY processed_at DESC LIMIT 10;"
+```
+
+---
+
+## Кэширование Redis
+
+По умолчанию Redis включён (`app.cache.redis.enabled=true`).
+
+При отключении (`app.cache.redis.enabled=false`) автоматически активируется **in-memory fallback** (SimpleCacheManager) — приложение продолжает работать без изменений в API.
+
+Кэшируются: списки задач, пользователей, категорий и отдельные сущности по ID. Кэш сбрасывается при create/update/delete.
+
+---
+
+## Приоритизация задач (Strategy Pattern)
+
+При каждом создании или обновлении задачи вычисляется приоритет. Стратегия задаётся в `application.properties`:
+
+```properties
+# Варианты: statusBasedPriorityStrategy | agePriorityStrategy
+app.task.priority.strategy=statusBasedPriorityStrategy
+```
+
+| Стратегия | Логика |
+|---|---|
+| `statusBasedPriorityStrategy` | TODO=10, IN_PROGRESS=20, DONE=0 |
+| `agePriorityStrategy` | Возраст задачи в днях × 2, максимум 100 |
+
+Рассчитанный приоритет выводится в лог при каждой операции.
+
+---
+
+## Тесты
+
+### Unit-тесты (без Docker)
+
+```bash
+mvn test -pl task-service -Dtest=TaskServiceTest
+```
+
+6 тестов: создание задачи, 404, удаление, смена статуса (с/без Kafka-события), пагинация.
+
+### Интеграционные тесты (Testcontainers поднимает Docker-контейнеры автоматически)
+
+```bash
+# task-service: MockMvc + PostgreSQL + Kafka
+mvn test -pl task-service -Dtest=TaskControllerIT
+
+# notification-service: Kafka consumer + PostgreSQL + Awaitility
+mvn test -pl notification-service -Dtest=TaskEventConsumerIT
+
+# Все тесты
+mvn test
+```
+
+---
+
+## Конфигурация
+
+### task-service — `application.properties`
+
+```properties
+# БД
+spring.datasource.url=jdbc:postgresql://localhost:5432/taskmanager
+
+# Redis (false = in-memory fallback)
+app.cache.redis.enabled=true
+
+# Kafka
+spring.kafka.bootstrap-servers=localhost:9092
+
+# Стратегия приоритизации
+app.task.priority.strategy=statusBasedPriorityStrategy
+```
+
+### notification-service — `application.properties`
+
+```properties
+server.port=8081
+spring.datasource.url=jdbc:postgresql://localhost:5433/notificationdb
+spring.kafka.bootstrap-servers=localhost:9092
+```
+
+---
+
+## Остановка
+
+```bash
+# Остановить Spring Boot: Ctrl+C в каждом терминале
+
+# Остановить Docker (данные сохранятся)
+docker-compose down
+
+# Полный сброс с удалением данных
+docker-compose down -v
+```
+
+---
+
+## Структура проекта
+
+```
+TaskManager/
+├── pom.xml                          ← родительский POM (multi-module)
+├── docker-compose.yml
+├── task-service/                    ← основной сервис (порт 8080)
+│   └── src/main/java/.../taskservice/
+│       ├── config/                  CacheConfig, KafkaProducerConfig
+│       ├── controller/              TaskController, UserController, CategoryController
+│       ├── event/                   TaskCreatedEvent, TaskUpdatedEvent, ...
+│       ├── producer/                TaskEventProducer
+│       ├── service/
+│       │   ├── TaskService.java
+│       │   └── priority/            TaskPriorityStrategy, StatusBased, Age
+│       └── repository/              TaskRepository (JPQL, фильтрация, пагинация)
+└── notification-service/            ← сервис уведомлений (порт 8081)
+    └── src/main/java/.../notificationservice/
+        ├── consumer/                TaskEventConsumer
+        ├── service/
+        │   └── dispatch/            NotificationDispatchStrategy, Database, Log
+        └── model/                   NotificationRecord
+```
